@@ -26,9 +26,10 @@ public final class FileEventSpool {
     private final int maximumEvents;
 
     public FileEventSpool(Path root, GatewayConfig.Spool config) throws IOException {
-        spoolDirectory = root.resolve(config.directory).normalize();
-        deadLetterDirectory = root.resolve(config.deadLetterDirectory).normalize();
-        quarantineDirectory = root.resolve(config.quarantineDirectory).normalize();
+        Path safeRoot = root.toAbsolutePath().normalize();
+        spoolDirectory = child(safeRoot, config.directory);
+        deadLetterDirectory = child(safeRoot, config.deadLetterDirectory);
+        quarantineDirectory = child(safeRoot, config.quarantineDirectory);
         maximumEvents = config.maximumEvents;
         Files.createDirectories(spoolDirectory);
         Files.createDirectories(deadLetterDirectory);
@@ -104,6 +105,13 @@ public final class FileEventSpool {
                     .sorted(Comparator.comparing(Path::toString)).toList();
         }
         catch (IOException exception) { return List.of(); }
+    }
+
+    private static Path child(Path root, String configured) throws IOException {
+        if (configured == null || configured.isBlank()) throw new IOException("diretório do spool vazio");
+        Path candidate = root.resolve(configured).normalize();
+        if (!candidate.startsWith(root) || candidate.equals(root)) throw new IOException("diretório do spool fora da raiz");
+        return candidate;
     }
 
     private static int priorityValue(String priority) {
