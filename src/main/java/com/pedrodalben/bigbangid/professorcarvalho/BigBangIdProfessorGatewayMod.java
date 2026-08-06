@@ -2,7 +2,7 @@ package com.pedrodalben.bigbangid.professorcarvalho;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.pedrodalben.bigbangid.professorcarvalho.lifecycle.GatewayRuntime;
-import net.fabricmc.api.ModInitializer;
+import net.fabricmc.api.DedicatedServerModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -11,13 +11,13 @@ import net.minecraft.network.chat.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public final class BigBangIdProfessorGatewayMod implements ModInitializer {
+public final class BigBangIdProfessorGatewayMod implements DedicatedServerModInitializer {
     public static final String MOD_ID = "bigbangid_professorcarvalhogateway";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
     private static final GatewayRuntime RUNTIME = new GatewayRuntime();
 
     @Override
-    public void onInitialize() {
+    public void onInitializeServer() {
         ServerLifecycleEvents.SERVER_STARTED.register(RUNTIME::start);
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> RUNTIME.shutdown());
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> RUNTIME.playerJoin(handler.player));
