@@ -6,7 +6,7 @@ import java.util.concurrent.ScheduledExecutorService;
 
 public final class SpoolProcessor {
     private final FileEventSpool spool;
-    private final GatewayClient client;
+    private volatile GatewayClient client;
     private final RetryPolicy retryPolicy;
     private final ScheduledExecutorService executor;
     private final java.util.concurrent.Semaphore inFlight;
@@ -16,8 +16,10 @@ public final class SpoolProcessor {
     }
 
     public void start() { executor.scheduleWithFixedDelay(this::process, 0, 1, java.util.concurrent.TimeUnit.SECONDS); }
+    public void updateClient(GatewayClient client) { this.client = client; }
 
     public void process() {
+        if (client == null) return;
         for (SpoolEntry entry : spool.ready()) {
             if (!inFlight.tryAcquire()) return;
             try {

@@ -131,7 +131,23 @@ public final class GatewayRuntime {
     public String statusText() { return "Professor Carvalho Gateway\nEstado: " + status + "\nServidor: " + config().serverId + "\nJogadores vinculados em cache: " + linked() + "\nEventos pendentes: " + pending() + "\nEventos em dead-letter: " + deadLetter() + "\nVersão do protocolo: 1"; }
     public void profile(ServerPlayer player) { JsonObject profile = profiles.get(player.getUUID()); if (profile == null) { player.sendSystemMessage(Component.literal("Ainda não há uma ficha local. Use /professor sincronizar.")); return; } player.sendSystemMessage(Component.literal("Ficha local recebida. Use /perfil no Discord para consultar os dados completos.")); }
 
-    public void reload() { try { loaded = configLoader.load(); status = loaded.valid() ? status : (loaded.config().enabled ? "DEGRADED" : "DESABILITADO"); } catch (Exception exception) { BigBangIdProfessorGatewayMod.LOGGER.warn("Falha ao recarregar configuração do gateway."); } }
+    public void reload() {
+        try {
+            GatewayConfigLoader.LoadedConfig refreshed = configLoader.load();
+            loaded = refreshed;
+            if (!refreshed.valid()) {
+                client = null;
+                if (processor != null) processor.updateClient(null);
+                status = refreshed.config().enabled ? "DEGRADED" : "DESABILITADO";
+                return;
+            }
+            client = new GatewayClient(refreshed.config(), refreshed.secret(), httpExecutor);
+            if (processor != null) processor.updateClient(client);
+            status = "CONECTADO";
+        } catch (Exception exception) {
+            BigBangIdProfessorGatewayMod.LOGGER.warn("Falha ao recarregar configuração do gateway.");
+        }
+    }
 
     public void shutdown() {
         try { if (loaded != null && client != null) sendEvent(GatewayEvent.create("gateway.stopping", config().serverId, new JsonObject()), "CRITICAL"); } catch (Exception ignored) { }
