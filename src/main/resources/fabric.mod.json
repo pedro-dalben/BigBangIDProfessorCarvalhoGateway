@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "bigbangid_professorcarvalhogateway",
+  "version": "${version}",
+  "name": "BigBang ID & Professor Carvalho Gateway",
+  "description": "Gateway server-side outboundo do BigMonCraft para o Professor Carvalho.",
+  "authors": ["pedrodalben"],
+  "contact": { "homepage": "https://github.com/pedro-dalben/BigBangIDProfessorCarvalhoGateway" },
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "server": ["com.pedrodalben.bigbangid.professorcarvalho.BigBangIdProfessorGatewayMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.9",
+    "minecraft": "1.21.1",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "bigbangessentials": "*",
+    "cobblemon": "*"
+  }
+}

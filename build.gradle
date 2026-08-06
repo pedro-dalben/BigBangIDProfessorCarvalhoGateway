@@ -1,0 +1,54 @@
+plugins {
+    id 'fabric-loom' version '1.9-SNAPSHOT'
+    id 'java'
+}
+
+group = project.mod_group_id
+version = project.mod_version
+base { archivesName = "bigbangid-professorcarvalho-gateway-fabric" }
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.parchmentmc.org' }
+    exclusiveContent {
+        forRepository { maven { name = 'Modrinth'; url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
+    maven { url = 'https://artefacts.cobblemon.com/releases/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.layered() {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${parchment_minecraft_version}:${parchment_mappings_version}@zip")
+    }
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    modCompileOnly "maven.modrinth:cobblemon:${cobblemon_version_id}"
+    compileOnly 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.20'
+    def bbeClasses = file('../BigBangEssentials/common/build/classes/java/main')
+    if (bbeClasses.exists()) compileOnly files(bbeClasses)
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand version: project.version }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.named('jar', Jar) {
+    archiveBaseName = 'bigbangid-professorcarvalho-gateway-fabric'
+    archiveVersion = "${project.mod_version}+1.21.1"
+}
+tasks.named('remapJar') {
+    archiveBaseName = 'bigbangid-professorcarvalho-gateway-fabric'
+    archiveVersion = "${project.mod_version}+1.21.1"
+}
+
+tasks.named('test', Test) { useJUnitPlatform() }
