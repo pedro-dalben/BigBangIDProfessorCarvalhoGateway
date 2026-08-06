@@ -10,7 +10,7 @@ import java.math.BigDecimal;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
-public final class BigBangEssentialsBridge {
+public final class BigBangEssentialsBridge implements EssentialsProfileBridge {
     public CompletableFuture<JsonObject> collect(UUID playerUuid) {
         return BigBangEssentialsApiProvider.get().map(api -> api.getPlayerProfile(playerUuid).thenApply(this::toJson)).orElseGet(() -> CompletableFuture.completedFuture(unavailable()));
     }

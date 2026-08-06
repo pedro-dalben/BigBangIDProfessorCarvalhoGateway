@@ -8,7 +8,7 @@ import com.cobblemon.mod.common.api.pokedex.PokedexManager;
 import com.cobblemon.mod.common.pokemon.Pokemon;
 import net.minecraft.server.level.ServerPlayer;
 
-public final class CobblemonBridge {
+public final class CobblemonBridge implements CobblemonProfileBridge {
     public boolean available() { return Cobblemon.INSTANCE != null && Cobblemon.INSTANCE.getStorage() != null; }
 
     public JsonObject collect(ServerPlayer player) {

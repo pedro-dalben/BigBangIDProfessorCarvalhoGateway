@@ -7,8 +7,10 @@ import com.pedrodalben.bigbangid.professorcarvalho.config.GatewayConfigLoader;
 import com.pedrodalben.bigbangid.professorcarvalho.gateway.GatewayClient;
 import com.pedrodalben.bigbangid.professorcarvalho.gateway.GatewayEvent;
 import com.pedrodalben.bigbangid.professorcarvalho.identity.LinkedPlayerCache;
-import com.pedrodalben.bigbangid.professorcarvalho.integration.BigBangEssentialsBridge;
-import com.pedrodalben.bigbangid.professorcarvalho.integration.CobblemonBridge;
+import com.pedrodalben.bigbangid.professorcarvalho.integration.EssentialsProfileBridge;
+import com.pedrodalben.bigbangid.professorcarvalho.integration.CobblemonProfileBridge;
+import com.pedrodalben.bigbangid.professorcarvalho.integration.NoopEssentialsBridge;
+import com.pedrodalben.bigbangid.professorcarvalho.integration.NoopCobblemonBridge;
 import com.pedrodalben.bigbangid.professorcarvalho.profile.PlayerProfileCollector;
 import com.pedrodalben.bigbangid.professorcarvalho.spool.FileEventSpool;
 import com.pedrodalben.bigbangid.professorcarvalho.spool.RetryPolicy;
@@ -52,7 +54,7 @@ public final class GatewayRuntime {
             loaded = configLoader.load();
             cache = new LinkedPlayerCache(loaded.root());
             spool = new FileEventSpool(loaded.root(), loaded.config().spool);
-            collector = new PlayerProfileCollector(new BigBangEssentialsBridge(), new CobblemonBridge(), profileExecutor, modVersion());
+            collector = new PlayerProfileCollector(loadEssentialsBridge(), loadCobblemonBridge(), profileExecutor, modVersion());
             if (!loaded.valid()) {
                 status = loaded.config().enabled ? "DEGRADED" : "DESABILITADO";
                 BigBangIdProfessorGatewayMod.LOGGER.warn("Gateway degradado: {}", loaded.errors());
@@ -151,5 +153,8 @@ public final class GatewayRuntime {
     private JsonObject playerPayload(ServerPlayer player) { JsonObject payload = new JsonObject(); payload.addProperty("minecraftUuid", player.getUUID().toString()); payload.addProperty("minecraftName", player.getGameProfile().getName()); return payload; }
     private int linkedOnline() { int count = 0; for (ServerPlayer player : server.getPlayerList().getPlayers()) if (cache != null && cache.contains(player.getUUID())) count++; return count; }
     private String modVersion() { return FabricLoader.getInstance().getModContainer(BigBangIdProfessorGatewayMod.MOD_ID).map(container -> container.getMetadata().getVersion().getFriendlyString()).orElse("0.1.0"); }
+    private EssentialsProfileBridge loadEssentialsBridge() { return loadOptional("com.pedrodalben.bigbangid.professorcarvalho.integration.BigBangEssentialsBridge", EssentialsProfileBridge.class, new NoopEssentialsBridge()); }
+    private CobblemonProfileBridge loadCobblemonBridge() { return loadOptional("com.pedrodalben.bigbangid.professorcarvalho.integration.CobblemonBridge", CobblemonProfileBridge.class, new NoopCobblemonBridge()); }
+    private static <T> T loadOptional(String className, Class<T> type, T fallback) { try { return type.cast(Class.forName(className).getDeclaredConstructor().newInstance()); } catch (Throwable ignored) { return fallback; } }
     private static Thread named(String name, Runnable runnable) { Thread thread = new Thread(runnable, name); thread.setDaemon(true); return thread; }
 }

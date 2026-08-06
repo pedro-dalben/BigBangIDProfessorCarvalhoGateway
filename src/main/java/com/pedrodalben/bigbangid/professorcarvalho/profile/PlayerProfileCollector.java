@@ -2,8 +2,8 @@ package com.pedrodalben.bigbangid.professorcarvalho.profile;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.pedrodalben.bigbangid.professorcarvalho.integration.BigBangEssentialsBridge;
-import com.pedrodalben.bigbangid.professorcarvalho.integration.CobblemonBridge;
+import com.pedrodalben.bigbangid.professorcarvalho.integration.EssentialsProfileBridge;
+import com.pedrodalben.bigbangid.professorcarvalho.integration.CobblemonProfileBridge;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.time.Instant;
@@ -11,12 +11,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 public final class PlayerProfileCollector {
-    private final BigBangEssentialsBridge essentials;
-    private final CobblemonBridge cobblemon;
+    private final EssentialsProfileBridge essentials;
+    private final CobblemonProfileBridge cobblemon;
     private final Executor executor;
     private final String modVersion;
 
-    public PlayerProfileCollector(BigBangEssentialsBridge essentials, CobblemonBridge cobblemon, Executor executor, String modVersion) {
+    public PlayerProfileCollector(EssentialsProfileBridge essentials, CobblemonProfileBridge cobblemon, Executor executor, String modVersion) {
         this.essentials = essentials; this.cobblemon = cobblemon; this.executor = executor; this.modVersion = modVersion;
     }
 
