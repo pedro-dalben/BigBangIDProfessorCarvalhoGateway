@@ -43,7 +43,15 @@ public final class FileEventSpool {
             }
         }
         List<Path> existing = files(spoolDirectory);
-        if (existing.size() >= maximumEvents) return false;
+        if (existing.size() >= maximumEvents) {
+            int incomingPriority = priorityValue(priority);
+            Path discard = existing.stream().filter(path -> {
+                try { SpoolEntry current = GSON.fromJson(Files.readString(path), SpoolEntry.class); return current != null && priorityValue(current.priority) < incomingPriority; }
+                catch (Exception ignored) { return false; }
+            }).findFirst().orElse(null);
+            if (discard == null) return false;
+            Files.deleteIfExists(discard);
+        }
         SpoolEntry entry = new SpoolEntry();
         entry.event = event.asJson();
         entry.bodySha256 = HmacSigner.bodyHash(event.bytes());
@@ -91,5 +99,9 @@ public final class FileEventSpool {
     private static List<Path> files(Path directory) {
         try (Stream<Path> stream = Files.list(directory)) { return stream.filter(path -> path.getFileName().toString().endsWith(".json")).sorted(Comparator.comparing(Path::toString)).toList(); }
         catch (IOException exception) { return List.of(); }
+    }
+
+    private static int priorityValue(String priority) {
+        return switch (priority == null ? "NORMAL" : priority) { case "CRITICAL" -> 4; case "HIGH" -> 3; case "NORMAL" -> 2; default -> 1; };
     }
 }
