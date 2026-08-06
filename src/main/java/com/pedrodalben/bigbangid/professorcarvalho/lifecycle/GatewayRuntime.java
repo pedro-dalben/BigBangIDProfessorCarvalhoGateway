@@ -50,6 +50,10 @@ public final class GatewayRuntime {
     public void start(MinecraftServer minecraftServer) {
         server = minecraftServer;
         startedAt = System.currentTimeMillis();
+        profileExecutor.execute(this::initialize);
+    }
+
+    private void initialize() {
         try {
             loaded = configLoader.load();
             cache = new LinkedPlayerCache(loaded.root());
@@ -129,9 +133,24 @@ public final class GatewayRuntime {
     public void retry() { if (processor != null) scheduler.execute(processor::process); }
     public void testHeartbeat() { heartbeat(); }
     public String statusText() { return "Professor Carvalho Gateway\nEstado: " + status + "\nServidor: " + config().serverId + "\nJogadores vinculados em cache: " + linked() + "\nEventos pendentes: " + pending() + "\nEventos em dead-letter: " + deadLetter() + "\nVersão do protocolo: 1"; }
-    public void profile(ServerPlayer player) { JsonObject profile = profiles.get(player.getUUID()); if (profile == null) { player.sendSystemMessage(Component.literal("Ainda não há uma ficha local. Use /professor sincronizar.")); return; } player.sendSystemMessage(Component.literal("Ficha local recebida. Use /perfil no Discord para consultar os dados completos.")); }
+    public void profile(ServerPlayer player) {
+        JsonObject profile = profiles.get(player.getUUID());
+        if (profile == null) { player.sendSystemMessage(Component.literal("Ainda não há uma ficha local. Use /professor sincronizar.")); return; }
+        StringBuilder text = new StringBuilder("👤 Ficha de Treinador — ").append(player.getGameProfile().getName());
+        JsonObject progression = profile.has("progression") && profile.get("progression").isJsonObject() ? profile.getAsJsonObject("progression") : new JsonObject();
+        if (progression.has("rank")) text.append("\n🏅 Rank: ").append(progression.get("rank").getAsString());
+        JsonObject economy = profile.has("economy") && profile.get("economy").isJsonObject() ? profile.getAsJsonObject("economy") : new JsonObject();
+        if (economy.has("coins") && economy.getAsJsonObject("coins").has("formatted")) text.append("\n💰 ").append(economy.getAsJsonObject("coins").get("formatted").getAsString());
+        if (economy.has("gems") && economy.getAsJsonObject("gems").has("formatted")) text.append("\n💎 ").append(economy.getAsJsonObject("gems").get("formatted").getAsString());
+        JsonObject cobblemon = profile.has("cobblemon") && profile.get("cobblemon").isJsonObject() ? profile.getAsJsonObject("cobblemon") : new JsonObject();
+        if (cobblemon.has("party") && cobblemon.get("party").isJsonArray()) text.append("\n🎒 Equipe: ").append(cobblemon.getAsJsonArray("party").size()).append(" Pokémon");
+        text.append("\n\nUse /perfil no Discord para consultar os dados completos.");
+        player.sendSystemMessage(Component.literal(text.toString()));
+    }
 
-    public void reload() {
+    public void reload() { profileExecutor.execute(this::reloadAsync); }
+
+    private void reloadAsync() {
         try {
             GatewayConfigLoader.LoadedConfig refreshed = configLoader.load();
             loaded = refreshed;

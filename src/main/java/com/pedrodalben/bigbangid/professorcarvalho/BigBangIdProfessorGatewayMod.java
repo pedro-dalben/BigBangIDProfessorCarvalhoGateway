@@ -32,7 +32,7 @@ public final class BigBangIdProfessorGatewayMod implements DedicatedServerModIni
             dispatcher.register(Commands.literal("bigbangid").redirect(dispatcher.getRoot().getChild("professor")));
             dispatcher.register(Commands.literal("pcgateway").requires(source -> source.hasPermission(3))
                 .then(Commands.literal("status").executes(context -> { context.getSource().sendSuccess(() -> Component.literal(RUNTIME.statusText()), false); return 1; }))
-                .then(Commands.literal("reload").executes(context -> { RUNTIME.reload(); context.getSource().sendSuccess(() -> Component.literal("Configuração recarregada."), true); return 1; }))
+                .then(Commands.literal("reload").executes(context -> { RUNTIME.reload(); context.getSource().sendSuccess(() -> Component.literal("Recarregamento da configuração agendado."), true); return 1; }))
                 .then(Commands.literal("queue").executes(context -> { context.getSource().sendSuccess(() -> Component.literal("Eventos pendentes: " + RUNTIME.pending()), true); return 1; }))
                 .then(Commands.literal("deadletter").executes(context -> { context.getSource().sendSuccess(() -> Component.literal("Eventos em dead-letter: " + RUNTIME.deadLetter()), true); return 1; }))
                 .then(Commands.literal("retry").executes(context -> { RUNTIME.retry(); context.getSource().sendSuccess(() -> Component.literal("Fila de eventos reprocessada."), true); return 1; }))

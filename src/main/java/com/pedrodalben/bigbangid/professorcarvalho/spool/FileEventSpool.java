@@ -9,6 +9,7 @@ import com.pedrodalben.bigbangid.professorcarvalho.security.HmacSigner;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
@@ -97,7 +98,11 @@ public final class FileEventSpool {
     }
 
     private static List<Path> files(Path directory) {
-        try (Stream<Path> stream = Files.list(directory)) { return stream.filter(path -> path.getFileName().toString().endsWith(".json")).sorted(Comparator.comparing(Path::toString)).toList(); }
+        try (Stream<Path> stream = Files.list(directory)) {
+            return stream.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                    .filter(path -> path.getFileName().toString().endsWith(".json"))
+                    .sorted(Comparator.comparing(Path::toString)).toList();
+        }
         catch (IOException exception) { return List.of(); }
     }
 
