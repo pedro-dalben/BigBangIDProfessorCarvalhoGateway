@@ -24,17 +24,18 @@ import net.minecraft.network.chat.Component;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public final class GatewayRuntime {
     private final GatewayConfigLoader configLoader = new GatewayConfigLoader();
-    private final ExecutorService httpExecutor = Executors.newFixedThreadPool(4, runnable -> named("professor-gateway-http", runnable));
-    private final ExecutorService profileExecutor = Executors.newFixedThreadPool(2, runnable -> named("professor-gateway-profile", runnable));
+    private final ExecutorService httpExecutor = bounded("professor-gateway-http", 4, 256);
+    private final ExecutorService profileExecutor = bounded("professor-gateway-profile", 2, 128);
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, runnable -> named("professor-gateway-scheduler", runnable));
     private final Map<UUID, JsonObject> profiles = new ConcurrentHashMap<>();
     private volatile GatewayConfigLoader.LoadedConfig loaded;
@@ -50,7 +51,7 @@ public final class GatewayRuntime {
     public void start(MinecraftServer minecraftServer) {
         server = minecraftServer;
         startedAt = System.currentTimeMillis();
-        profileExecutor.execute(this::initialize);
+        try { profileExecutor.execute(this::initialize); } catch (RuntimeException exception) { status = "DEGRADED"; }
     }
 
     private void initialize() {
@@ -148,7 +149,7 @@ public final class GatewayRuntime {
         player.sendSystemMessage(Component.literal(text.toString()));
     }
 
-    public void reload() { profileExecutor.execute(this::reloadAsync); }
+    public void reload() { try { profileExecutor.execute(this::reloadAsync); } catch (RuntimeException ignored) { } }
 
     private void reloadAsync() {
         try {
@@ -169,9 +170,12 @@ public final class GatewayRuntime {
     }
 
     public void shutdown() {
-        try { if (loaded != null && client != null) sendEvent(GatewayEvent.create("gateway.stopping", config().serverId, new JsonObject()), "CRITICAL"); } catch (Exception ignored) { }
+        try { if (loaded != null && client != null) profileExecutor.execute(() -> sendEvent(GatewayEvent.create("gateway.stopping", config().serverId, new JsonObject()), "CRITICAL")); } catch (Exception ignored) { }
         scheduler.shutdown(); httpExecutor.shutdown(); profileExecutor.shutdown();
-        try { scheduler.awaitTermination(config().shutdownFlushTimeoutSeconds, TimeUnit.SECONDS); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(config().shutdownFlushTimeoutSeconds);
+        await(scheduler, deadline);
+        await(profileExecutor, deadline);
+        await(httpExecutor, deadline);
         status = "DESLIGADO";
     }
 
@@ -199,4 +203,13 @@ public final class GatewayRuntime {
     private CobblemonProfileBridge loadCobblemonBridge() { return loadOptional("com.pedrodalben.bigbangid.professorcarvalho.integration.CobblemonBridge", CobblemonProfileBridge.class, new NoopCobblemonBridge()); }
     private static <T> T loadOptional(String className, Class<T> type, T fallback) { try { return type.cast(Class.forName(className).getDeclaredConstructor().newInstance()); } catch (Throwable ignored) { return fallback; } }
     private static Thread named(String name, Runnable runnable) { Thread thread = new Thread(runnable, name); thread.setDaemon(true); return thread; }
+    private static ExecutorService bounded(String name, int threads, int queueSize) {
+        return new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(queueSize), runnable -> named(name, runnable), new ThreadPoolExecutor.AbortPolicy());
+    }
+    private static void await(ExecutorService executor, long deadline) {
+        try {
+            long remaining = deadline - System.nanoTime();
+            if (remaining > 0) executor.awaitTermination(remaining, TimeUnit.NANOSECONDS);
+        } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+    }
 }
