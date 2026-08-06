@@ -23,6 +23,7 @@ import net.minecraft.network.chat.Component;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -36,8 +37,11 @@ public final class GatewayRuntime {
     private final GatewayConfigLoader configLoader = new GatewayConfigLoader();
     private final ExecutorService httpExecutor = bounded("professor-gateway-http", 4, 256);
     private final ExecutorService profileExecutor = bounded("professor-gateway-profile", 2, 128);
+    private final ExecutorService spoolExecutor = bounded("professor-gateway-spool", 1, 256);
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, runnable -> named("professor-gateway-scheduler", runnable));
     private final Map<UUID, JsonObject> profiles = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastProfileRequests = new ConcurrentHashMap<>();
+    private final Set<UUID> profileInFlight = ConcurrentHashMap.newKeySet();
     private volatile GatewayConfigLoader.LoadedConfig loaded;
     private volatile GatewayClient client;
     private volatile FileEventSpool spool;
@@ -71,6 +75,8 @@ public final class GatewayRuntime {
             status = "CONECTADO";
             sendEvent(GatewayEvent.create("gateway.started", loaded.config().serverId, new JsonObject()), "CRITICAL");
             scheduler.scheduleWithFixedDelay(this::heartbeat, 0, loaded.config().heartbeatIntervalSeconds, TimeUnit.SECONDS);
+            if (loaded.config().profiles.syncPeriodically)
+                scheduler.scheduleWithFixedDelay(this::periodicProfiles, loaded.config().profileSyncIntervalSeconds, loaded.config().profileSyncIntervalSeconds, TimeUnit.SECONDS);
         } catch (Exception exception) {
             status = "DEGRADED";
             BigBangIdProfessorGatewayMod.LOGGER.error("Falha ao iniciar o gateway; Minecraft continuará funcionando.", exception);
@@ -83,47 +89,90 @@ public final class GatewayRuntime {
         String normalized = code.trim().toUpperCase(java.util.Locale.ROOT);
         if (!normalized.matches("CARVALHO-[ABCDEFGHJKMNPQRSTVWXYZ23456789]{8}")) { player.sendSystemMessage(Component.literal("O código de vinculação informado é inválido.")); return; }
         player.sendSystemMessage(Component.literal("⏳ O Professor Carvalho está verificando seu código..."));
-        client.link(normalized, player.getUUID(), player.getGameProfile().getName()).whenComplete((response, error) -> server.execute(() -> {
-            if (error != null) { player.sendSystemMessage(Component.literal("O Professor Carvalho está temporariamente indisponível. Tente novamente em alguns instantes.")); return; }
+        UUID playerUuid = player.getUUID();
+        String playerName = player.getGameProfile().getName();
+        client.link(normalized, playerUuid, playerName).whenComplete((response, error) -> {
+            if (error != null) { server.execute(() -> player.sendSystemMessage(Component.literal("O Professor Carvalho está temporariamente indisponível. Tente novamente em alguns instantes."))); return; }
             try {
                 JsonObject json = com.google.gson.JsonParser.parseString(response.body()).getAsJsonObject();
                 if (json.has("success") && json.get("success").getAsBoolean()) {
-                    try { cache.put(player.getUUID(), player.getGameProfile().getName()); } catch (java.io.IOException ignored) { }
-                    player.sendSystemMessage(Component.literal("✅ Conta vinculada com sucesso! O Professor Carvalho agora poderá acompanhar seu progresso no BigMonCraft. Use /perfil no Discord para consultar sua ficha de treinador."));
-                    sendEvent(GatewayEvent.create("identity.link.completed", config.serverId, new JsonObject()), "CRITICAL");
-                    syncProfile(player);
-                } else player.sendSystemMessage(Component.literal(json.has("message") ? json.get("message").getAsString() : "Não foi possível concluir a vinculação."));
-            } catch (RuntimeException parseError) { player.sendSystemMessage(Component.literal("O Professor Carvalho retornou uma resposta inválida. Tente novamente em alguns instantes.")); }
-        }));
+                    try { cache.put(playerUuid, playerName); } catch (java.io.IOException ignored) { }
+                    server.execute(() -> {
+                        player.sendSystemMessage(Component.literal("✅ Conta vinculada com sucesso! O Professor Carvalho agora poderá acompanhar seu progresso no BigMonCraft. Use /perfil no Discord para consultar sua ficha de treinador."));
+                        sendEvent(GatewayEvent.create("identity.link.completed", config.serverId, new JsonObject()), "CRITICAL");
+                        syncProfile(player);
+                    });
+                } else server.execute(() -> player.sendSystemMessage(Component.literal(json.has("message") ? json.get("message").getAsString() : "Não foi possível concluir a vinculação.")));
+            } catch (RuntimeException parseError) { server.execute(() -> player.sendSystemMessage(Component.literal("O Professor Carvalho retornou uma resposta inválida. Tente novamente em alguns instantes."))); }
+        });
     }
 
     public void syncProfile(ServerPlayer player) {
-        if (client == null || collector == null || cache == null || !cache.contains(player.getUUID())) { player.sendSystemMessage(Component.literal("Não encontrei uma vinculação ativa. Use /vincular no Discord e depois /professor vincular <código>.")); return; }
-        player.sendSystemMessage(Component.literal("⏳ Atualizando sua ficha de treinador..."));
-        collector.collect(player, true, FabricLoader.getInstance().isModLoaded("cobblemon"))
-            .thenAccept(payload -> {
-                GatewayEvent event = GatewayEvent.create("player.profile.snapshot", config().serverId, payload);
-                client.post("/v1/gateway/profiles", event.bytes()).whenComplete((response, error) -> server.execute(() -> {
-                    if (error != null) { player.sendSystemMessage(Component.literal("O Professor Carvalho está temporariamente indisponível. Tente novamente em alguns instantes.")); return; }
-                    try {
-                        JsonObject json = com.google.gson.JsonParser.parseString(response.body()).getAsJsonObject();
-                        if (json.has("accepted") && json.get("accepted").getAsBoolean()) { profiles.put(player.getUUID(), payload); try { cache.markSynced(player.getUUID()); } catch (java.io.IOException ignored) { } player.sendSystemMessage(Component.literal("✅ Ficha atualizada! Use /perfil no Discord para consultar seus dados.")); }
-                        else if ("IDENTITY_NOT_LINKED".equals(json.has("code") ? json.get("code").getAsString() : "")) { try { cache.remove(player.getUUID()); } catch (java.io.IOException ignored) { } player.sendSystemMessage(Component.literal("Não encontrei uma vinculação ativa no Professor Carvalho.")); }
-                    } catch (RuntimeException ignored) { }
-                }));
-            })
-            .exceptionally(error -> null);
+        syncProfile(player, true);
+    }
+
+    private void syncProfile(ServerPlayer player, boolean notify) {
+        UUID playerUuid = player.getUUID();
+        GatewayClient currentClient = client;
+        LinkedPlayerCache currentCache = cache;
+        PlayerProfileCollector currentCollector = collector;
+        if (currentClient == null || currentCollector == null || currentCache == null || !currentCache.contains(playerUuid)) {
+            if (notify) player.sendSystemMessage(Component.literal("Não encontrei uma vinculação ativa. Use /vincular no Discord e depois /professor vincular <código>."));
+            return;
+        }
+        long now = System.currentTimeMillis();
+        long minimumMillis = Math.max(0, config().profileMinimumIntervalSeconds) * 1000L;
+        Long last = lastProfileRequests.get(playerUuid);
+        if (last != null && now - last < minimumMillis) return;
+        if (!profileInFlight.add(playerUuid)) return;
+        lastProfileRequests.put(playerUuid, now);
+        if (notify) player.sendSystemMessage(Component.literal("⏳ Atualizando sua ficha de treinador..."));
+        currentCollector.collect(player, true, FabricLoader.getInstance().isModLoaded("cobblemon")).whenComplete((payload, collectError) -> {
+            if (collectError != null) {
+                profileInFlight.remove(playerUuid);
+                if (notify) server.execute(() -> player.sendSystemMessage(Component.literal("O Professor Carvalho está temporariamente indisponível. Tente novamente em alguns instantes.")));
+                return;
+            }
+            GatewayEvent event = GatewayEvent.create("player.profile.snapshot", config().serverId, payload);
+            currentClient.post("/v1/gateway/profiles", event.bytes()).whenComplete((response, error) -> {
+                profileInFlight.remove(playerUuid);
+                if (error != null) {
+                    if (notify) server.execute(() -> player.sendSystemMessage(Component.literal("O Professor Carvalho está temporariamente indisponível. Tente novamente em alguns instantes.")));
+                    return;
+                }
+                try {
+                    JsonObject json = com.google.gson.JsonParser.parseString(response.body()).getAsJsonObject();
+                    if (json.has("accepted") && json.get("accepted").getAsBoolean()) {
+                        profiles.put(playerUuid, payload);
+                        try { currentCache.markSynced(playerUuid); } catch (java.io.IOException ignored) { }
+                        if (notify) server.execute(() -> player.sendSystemMessage(Component.literal("✅ Ficha atualizada! Use /perfil no Discord para consultar seus dados.")));
+                    } else if ("IDENTITY_NOT_LINKED".equals(json.has("code") ? json.get("code").getAsString() : "")) {
+                        try { currentCache.remove(playerUuid); } catch (java.io.IOException ignored) { }
+                        if (notify) server.execute(() -> player.sendSystemMessage(Component.literal("Não encontrei uma vinculação ativa no Professor Carvalho.")));
+                    }
+                } catch (RuntimeException ignored) { }
+            });
+        });
     }
 
     public void playerJoin(ServerPlayer player) {
         if (loaded != null) sendEvent(GatewayEvent.create("player.session.started", config().serverId, playerPayload(player)), "NORMAL");
-        if (loaded != null && cache != null && cache.contains(player.getUUID())) {
+        if (loaded != null && config().profiles.syncOnJoin && cache != null && cache.contains(player.getUUID())) {
             scheduler.schedule(() -> server.execute(() -> syncProfile(player)), 5, TimeUnit.SECONDS);
         }
     }
 
     public void playerLeave(ServerPlayer player) {
+        if (loaded != null && config().profiles.syncOnLeave && cache != null && cache.contains(player.getUUID())) syncProfile(player, false);
         if (loaded != null) sendEvent(GatewayEvent.create("player.session.ended", config().serverId, playerPayload(player)), "HIGH");
+    }
+
+    private void periodicProfiles() {
+        if (server == null || loaded == null || !loaded.config().profiles.enabled) return;
+        server.execute(() -> {
+            for (ServerPlayer player : server.getPlayerList().getPlayers())
+                if (cache != null && cache.contains(player.getUUID())) syncProfile(player, false);
+        });
     }
 
     public String status() { return status; }
@@ -171,11 +220,12 @@ public final class GatewayRuntime {
 
     public void shutdown() {
         try { if (loaded != null && client != null) profileExecutor.execute(() -> sendEvent(GatewayEvent.create("gateway.stopping", config().serverId, new JsonObject()), "CRITICAL")); } catch (Exception ignored) { }
-        scheduler.shutdown(); httpExecutor.shutdown(); profileExecutor.shutdown();
+        scheduler.shutdown(); httpExecutor.shutdown(); profileExecutor.shutdown(); spoolExecutor.shutdown();
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(config().shutdownFlushTimeoutSeconds);
         await(scheduler, deadline);
         await(profileExecutor, deadline);
         await(httpExecutor, deadline);
+        await(spoolExecutor, deadline);
         status = "DESLIGADO";
     }
 
@@ -188,7 +238,12 @@ public final class GatewayRuntime {
         sendEvent(GatewayEvent.create("gateway.heartbeat", config().serverId, payload), "LOW");
     }
 
-    private void sendEvent(GatewayEvent event, String priority) { try { if (spool != null && config().spool.enabled) spool.enqueue(event, priority); } catch (Exception exception) { BigBangIdProfessorGatewayMod.LOGGER.warn("Não foi possível armazenar evento {}.", event.eventType()); } }
+    private void sendEvent(GatewayEvent event, String priority) {
+        FileEventSpool currentSpool = spool;
+        if (currentSpool == null || !config().spool.enabled) return;
+        try { spoolExecutor.execute(() -> { try { currentSpool.enqueue(event, priority); } catch (Exception exception) { BigBangIdProfessorGatewayMod.LOGGER.warn("Não foi possível armazenar evento {}.", event.eventType()); } }); }
+        catch (RuntimeException ignored) { }
+    }
     private void handlePermanentResponse(com.pedrodalben.bigbangid.professorcarvalho.spool.SpoolEntry entry, com.pedrodalben.bigbangid.professorcarvalho.gateway.GatewayResponse response) {
         if (!"IDENTITY_NOT_LINKED".equals(response.code()) || cache == null) return;
         try {
