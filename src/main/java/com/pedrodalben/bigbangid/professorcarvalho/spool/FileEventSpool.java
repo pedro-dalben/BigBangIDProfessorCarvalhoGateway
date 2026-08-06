@@ -13,6 +13,8 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -24,6 +26,7 @@ public final class FileEventSpool {
     private final Path deadLetterDirectory;
     private final Path quarantineDirectory;
     private final int maximumEvents;
+    private final int maximumEventAgeDays;
 
     public FileEventSpool(Path root, GatewayConfig.Spool config) throws IOException {
         Path safeRoot = root.toAbsolutePath().normalize();
@@ -31,6 +34,7 @@ public final class FileEventSpool {
         deadLetterDirectory = child(safeRoot, config.deadLetterDirectory);
         quarantineDirectory = child(safeRoot, config.quarantineDirectory);
         maximumEvents = config.maximumEvents;
+        maximumEventAgeDays = config.maximumEventAgeDays;
         Files.createDirectories(spoolDirectory);
         Files.createDirectories(deadLetterDirectory);
         Files.createDirectories(quarantineDirectory);
@@ -65,7 +69,31 @@ public final class FileEventSpool {
     }
 
     public synchronized List<SpoolEntry> ready() {
-        return files(spoolDirectory).stream().map(this::read).filter(java.util.Objects::nonNull).filter(entry -> !entry.nextAttempt().isAfter(Instant.now())).toList();
+        Instant now = Instant.now();
+        Instant cutoff = now.minus(Math.max(1, maximumEventAgeDays), ChronoUnit.DAYS);
+        List<SpoolEntry> ready = new ArrayList<>();
+        for (Path path : files(spoolDirectory)) {
+            SpoolEntry entry = read(path);
+            if (entry == null) continue;
+            try {
+                if (entry.createdAt != null && Instant.parse(entry.createdAt).isBefore(cutoff)) {
+                    entry.lastErrorCode = "EVENT_AGE_EXCEEDED";
+                    deadLetter(entry);
+                    continue;
+                }
+            } catch (RuntimeException ignored) {
+                try { move(path, quarantineDirectory); } catch (IOException ignoredMove) { }
+                continue;
+            } catch (IOException ignored) {
+                continue;
+            }
+            try {
+                if (!entry.nextAttempt().isAfter(now)) ready.add(entry);
+            } catch (RuntimeException ignored) {
+                try { move(path, quarantineDirectory); } catch (IOException ignoredMove) { }
+            }
+        }
+        return ready;
     }
 
     public synchronized void save(SpoolEntry entry) throws IOException { writeAtomic(spoolDirectory.resolve(entry.event.get("eventId").getAsString() + ".json"), GSON.toJson(entry)); }
