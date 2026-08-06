@@ -1,6 +1,13 @@
 package com.pedrodalben.bigbangid.professorcarvalho.gateway;
 
 public record GatewayResponse(int statusCode, String body) {
+    public String code() {
+        try {
+            var json = com.google.gson.JsonParser.parseString(body).getAsJsonObject();
+            return json.has("code") ? json.get("code").getAsString() : "";
+        } catch (RuntimeException ignored) { return ""; }
+    }
+
     public boolean accepted(String eventId) {
         try {
             var json = com.google.gson.JsonParser.parseString(body).getAsJsonObject();

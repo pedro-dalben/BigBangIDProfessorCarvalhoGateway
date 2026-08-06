@@ -65,7 +65,7 @@ public final class GatewayRuntime {
                 return;
             }
             client = new GatewayClient(loaded.config(), loaded.secret(), httpExecutor);
-            processor = new SpoolProcessor(spool, client, new RetryPolicy(loaded.config().spool), scheduler, loaded.config().maximumInFlightRequests);
+            processor = new SpoolProcessor(spool, client, new RetryPolicy(loaded.config().spool), scheduler, loaded.config().maximumInFlightRequests, this::handlePermanentResponse);
             processor.start();
             status = "CONECTADO";
             sendEvent(GatewayEvent.create("gateway.started", loaded.config().serverId, new JsonObject()), "CRITICAL");
@@ -185,6 +185,13 @@ public final class GatewayRuntime {
     }
 
     private void sendEvent(GatewayEvent event, String priority) { try { if (spool != null && config().spool.enabled) spool.enqueue(event, priority); } catch (Exception exception) { BigBangIdProfessorGatewayMod.LOGGER.warn("Não foi possível armazenar evento {}.", event.eventType()); } }
+    private void handlePermanentResponse(com.pedrodalben.bigbangid.professorcarvalho.spool.SpoolEntry entry, com.pedrodalben.bigbangid.professorcarvalho.gateway.GatewayResponse response) {
+        if (!"IDENTITY_NOT_LINKED".equals(response.code()) || cache == null) return;
+        try {
+            JsonObject player = entry.event.getAsJsonObject("payload").getAsJsonObject("player");
+            cache.remove(UUID.fromString(player.get("minecraftUuid").getAsString()));
+        } catch (Exception ignored) { }
+    }
     private JsonObject playerPayload(ServerPlayer player) { JsonObject payload = new JsonObject(); payload.addProperty("minecraftUuid", player.getUUID().toString()); payload.addProperty("minecraftName", player.getGameProfile().getName()); return payload; }
     private int linkedOnline() { int count = 0; for (ServerPlayer player : server.getPlayerList().getPlayers()) if (cache != null && cache.contains(player.getUUID())) count++; return count; }
     private String modVersion() { return FabricLoader.getInstance().getModContainer(BigBangIdProfessorGatewayMod.MOD_ID).map(container -> container.getMetadata().getVersion().getFriendlyString()).orElse("0.1.0"); }
