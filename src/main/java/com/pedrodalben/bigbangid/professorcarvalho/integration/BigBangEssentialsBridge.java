@@ -9,10 +9,11 @@ import com.pedrodalben.bigbangessentials.api.professorcarvalho.PlayerEssentialsP
 import java.math.BigDecimal;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public final class BigBangEssentialsBridge implements EssentialsProfileBridge {
     public CompletableFuture<JsonObject> collect(UUID playerUuid) {
-        return BigBangEssentialsApiProvider.get().map(api -> api.getPlayerProfile(playerUuid).thenApply(this::toJson)).orElseGet(() -> CompletableFuture.completedFuture(unavailable()));
+        return BigBangEssentialsApiProvider.get().map(api -> api.getPlayerProfile(playerUuid).orTimeout(3, TimeUnit.SECONDS).thenApply(this::toJson)).orElseGet(() -> CompletableFuture.completedFuture(unavailable()));
     }
 
     public boolean available() { return BigBangEssentialsApiProvider.get().isPresent(); }
