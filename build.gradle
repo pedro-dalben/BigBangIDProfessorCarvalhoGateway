@@ -29,6 +29,7 @@ dependencies {
     compileOnly 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.20'
     def bbeClasses = file('../BigBangEssentials/common/build/classes/java/main')
     if (bbeClasses.exists()) compileOnly files(bbeClasses)
+    else compileOnly files("$rootDir/libs")
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 

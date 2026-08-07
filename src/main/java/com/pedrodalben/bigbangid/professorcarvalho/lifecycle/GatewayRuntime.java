@@ -9,6 +9,7 @@ import com.pedrodalben.bigbangid.professorcarvalho.gateway.GatewayEvent;
 import com.pedrodalben.bigbangid.professorcarvalho.identity.LinkedPlayerCache;
 import com.pedrodalben.bigbangid.professorcarvalho.integration.EssentialsProfileBridge;
 import com.pedrodalben.bigbangid.professorcarvalho.integration.CobblemonProfileBridge;
+import com.pedrodalben.bigbangid.professorcarvalho.integration.CobblemonEventBridge;
 import com.pedrodalben.bigbangid.professorcarvalho.integration.NoopEssentialsBridge;
 import com.pedrodalben.bigbangid.professorcarvalho.integration.NoopCobblemonBridge;
 import com.pedrodalben.bigbangid.professorcarvalho.profile.PlayerProfileCollector;
@@ -47,6 +48,8 @@ public final class GatewayRuntime {
     private volatile FileEventSpool spool;
     private volatile LinkedPlayerCache cache;
     private volatile SpoolProcessor processor;
+    private volatile CobblemonProfileBridge cobblemonBridge;
+    private volatile CobblemonEventBridge cobblemonEventBridge;
     private volatile PlayerProfileCollector collector;
     private volatile MinecraftServer server;
     private volatile String status = "DESLIGADO";
@@ -63,7 +66,9 @@ public final class GatewayRuntime {
             loaded = configLoader.load();
             cache = new LinkedPlayerCache(loaded.root());
             spool = new FileEventSpool(loaded.root(), loaded.config().spool);
-            collector = new PlayerProfileCollector(loadEssentialsBridge(), loadCobblemonBridge(), profileExecutor, modVersion());
+            collector = new PlayerProfileCollector(loadEssentialsBridge(), cobblemonBridge = loadCobblemonBridge(), profileExecutor, modVersion());
+            cobblemonEventBridge = new CobblemonEventBridge(this::sendEvent, loaded.config().serverId);
+            cobblemonEventBridge.register();
             if (!loaded.valid()) {
                 status = loaded.config().enabled ? "DEGRADED" : "DESABILITADO";
                 BigBangIdProfessorGatewayMod.LOGGER.warn("Gateway degradado: {}", loaded.errors());
