@@ -27,9 +27,10 @@ dependencies {
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
     modCompileOnly "maven.modrinth:cobblemon:${cobblemon_version_id}"
     compileOnly 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.20'
-    def bbeClasses = file('../BigBangEssentials/common/build/classes/java/main')
-    if (bbeClasses.exists()) compileOnly files(bbeClasses)
-    else compileOnly files("$rootDir/libs")
+    def bbeJar = project.fileTree('../BigBangEssentials/fabric/build/libs') { include 'bigbangessentials-fabric-*.jar' }.files.sort { it.lastModified() }.last()
+    if (bbeJar == null) throw new GradleException('BigBangEssentials fabric jar not found: build ../BigBangEssentials/fabric:remapJar first')
+    compileOnly files(bbeJar)
+    testImplementation files(bbeJar)
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
 }
 

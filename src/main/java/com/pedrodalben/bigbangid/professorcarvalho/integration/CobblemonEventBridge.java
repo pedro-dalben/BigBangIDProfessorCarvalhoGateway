@@ -1,19 +1,22 @@
 package com.pedrodalben.bigbangid.professorcarvalho.integration;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.pedrodalben.bigbangid.professorcarvalho.BigBangIdProfessorGatewayMod;
 import com.pedrodalben.bigbangid.professorcarvalho.gateway.GatewayEvent;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.time.Instant;
+import java.util.Locale;
+import java.util.function.Consumer;
+
 public final class CobblemonEventBridge {
     private final EventEmitter emitter;
     private final String serverId;
     private volatile boolean registered;
-
-    public interface EventEmitter {
-        void sendEvent(GatewayEvent event, String priority);
-    }
 
     public CobblemonEventBridge(EventEmitter emitter, String serverId) {
         this.emitter = emitter;
@@ -34,69 +37,45 @@ public final class CobblemonEventBridge {
 
     private void registerCaptureListener() {
         try {
-            var eventsClass = Class.forName("com.cobblemon.mod.common.api.events.CobblemonEvents");
-            var capturedField = eventsClass.getField("POKEMON_CAPTURED");
-            var observable = capturedField.get(null);
-            var subscribeMethod = observable.getClass().getMethod("subscribe", java.util.function.Consumer.class);
-            subscribeMethod.invoke(observable, (java.util.function.Consumer<Object>) (event) -> {
+            Class<?> eventsClass = Class.forName("com.cobblemon.mod.common.api.events.CobblemonEvents");
+            Field capturedField = eventsClass.getField("POKEMON_CAPTURED");
+            Object observable = capturedField.get(null);
+            Method subscribeMethod = observable.getClass().getMethod("subscribe", Consumer.class);
+            subscribeMethod.invoke(observable, (Consumer<Object>) event -> {
                 try {
-                    var getPlayer = event.getClass().getMethod("getPlayer");
-                    var getPokemon = event.getClass().getMethod("getPokemon");
-                    var getPokeBallEntity = event.getClass().getMethod("getPokeBallEntity");
-
-                    var player = (ServerPlayer) getPlayer.invoke(event);
-                    var pokemon = getPokemon.invoke(event);
-                    var ballEntity = getPokeBallEntity.invoke(event);
-
+                    Object pokemon = event.getClass().getMethod("getPokemon").invoke(event);
+                    ServerPlayer player = (ServerPlayer) event.getClass().getMethod("getPlayer").invoke(event);
+                    Object ballEntity = event.getClass().getMethod("getPokeBallEntity").invoke(event);
                     if (player == null || pokemon == null) return;
-
                     JsonObject payload = new JsonObject();
                     payload.addProperty("minecraftUuid", player.getUUID().toString());
-
-                    var species = pokemon.getClass().getMethod("getSpecies").invoke(pokemon);
+                    Object species = pokemon.getClass().getMethod("getSpecies").invoke(pokemon);
                     if (species != null) {
-                        var speciesName = species.getClass().getMethod("getName").invoke(species);
-                        payload.addProperty("species", speciesName.toString().toLowerCase(java.util.Locale.ROOT));
+                        Object speciesName = species.getClass().getMethod("getName").invoke(species);
+                        payload.addProperty("species", speciesName.toString().toLowerCase(Locale.ROOT));
                     }
-
-                    var form = pokemon.getClass().getMethod("getForm").invoke(pokemon);
+                    Object form = pokemon.getClass().getMethod("getForm").invoke(pokemon);
                     if (form != null) {
-                        var formName = form.getClass().getMethod("getName").invoke(form);
-                        if (formName != null && !formName.toString().isEmpty()) {
-                            payload.addProperty("form", formName.toString());
-                        }
+                        Object formName = form.getClass().getMethod("getName").invoke(form);
+                        if (formName != null && !formName.toString().isEmpty()) payload.addProperty("form", formName.toString());
                     }
-
-                    int level = (int) pokemon.getClass().getMethod("getLevel").invoke(pokemon);
-                    payload.addProperty("level", level);
-
-                    boolean shiny = (boolean) pokemon.getClass().getMethod("getShiny").invoke(pokemon);
-                    payload.addProperty("shiny", shiny);
-
+                    payload.addProperty("level", (Number) pokemon.getClass().getMethod("getLevel").invoke(pokemon));
+                    payload.addProperty("shiny", (Boolean) pokemon.getClass().getMethod("getShiny").invoke(pokemon));
                     try {
-                        var genderMethod = pokemon.getClass().getMethod("getGender");
-                        var gender = genderMethod.invoke(pokemon);
-                        if (gender != null) {
-                            payload.addProperty("gender", gender.toString().toLowerCase(java.util.Locale.ROOT));
-                        }
+                        Object gender = pokemon.getClass().getMethod("getGender").invoke(pokemon);
+                        if (gender != null) payload.addProperty("gender", gender.toString().toLowerCase(Locale.ROOT));
                     } catch (NoSuchMethodException ignored) { }
-
                     if (ballEntity != null) {
                         try {
-                            var ballItem = ballEntity.getClass().getMethod("getPokeBall").invoke(ballEntity);
+                            Object ballItem = ballEntity.getClass().getMethod("getPokeBall").invoke(ballEntity);
                             if (ballItem != null) {
-                                var ballName = ballItem.getClass().getMethod("getName").invoke(ballItem);
-                                if (ballName != null) {
-                                    payload.addProperty("ball", ballName.toString());
-                                }
+                                Object ballName = ballItem.getClass().getMethod("getName").invoke(ballItem);
+                                if (ballName != null) payload.addProperty("ball", ballName.toString());
                             }
                         } catch (Exception ignored) { }
                     }
-
-                    payload.addProperty("occurredAt", java.time.Instant.now().toString());
-
-                    GatewayEvent gatewayEvent = GatewayEvent.create("pokemon.capture.completed", serverId, payload);
-                    emitter.sendEvent(gatewayEvent, "NORMAL");
+                    payload.addProperty("occurredAt", Instant.now().toString());
+                    emitter.sendEvent(GatewayEvent.create("pokemon.capture.completed", serverId, (JsonElement) payload), "NORMAL");
                 } catch (Exception ex) {
                     BigBangIdProfessorGatewayMod.LOGGER.warn("Falha ao processar evento de captura: {}", ex.getMessage());
                 }
@@ -108,72 +87,52 @@ public final class CobblemonEventBridge {
 
     private void registerEvolutionListener() {
         try {
-            var eventsClass = Class.forName("com.cobblemon.mod.common.api.events.CobblemonEvents");
-            var evolvedField = eventsClass.getField("EVOLUTION_COMPLETE");
-            var observable = evolvedField.get(null);
-            var subscribeMethod = observable.getClass().getMethod("subscribe", java.util.function.Consumer.class);
-            subscribeMethod.invoke(observable, (java.util.function.Consumer<Object>) (event) -> {
+            Class<?> eventsClass = Class.forName("com.cobblemon.mod.common.api.events.CobblemonEvents");
+            Field evolvedField = eventsClass.getField("EVOLUTION_COMPLETE");
+            Object observable = evolvedField.get(null);
+            Method subscribeMethod = observable.getClass().getMethod("subscribe", Consumer.class);
+            subscribeMethod.invoke(observable, (Consumer<Object>) event -> {
                 try {
-                    var getPokemon = event.getClass().getMethod("getPokemon");
-                    var pokemon = getPokemon.invoke(event);
-
-                    Object sourcePokemon = null;
+                    Object pokemon = event.getClass().getMethod("getPokemon").invoke(event);
+                    Object sourcePokemon;
                     try {
-                        var getSource = event.getClass().getMethod("getSourcePokemon");
-                        sourcePokemon = getSource.invoke(event);
+                        sourcePokemon = event.getClass().getMethod("getSourcePokemon").invoke(event);
                     } catch (NoSuchMethodException ignored) {
-                        var getOld = event.getClass().getMethod("getOldPokemon");
-                        sourcePokemon = getOld.invoke(event);
+                        sourcePokemon = event.getClass().getMethod("getOldPokemon").invoke(event);
                     }
-
                     if (pokemon == null || sourcePokemon == null) return;
-
-                    Object toSpecies = null;
-                    Object fromSpecies = null;
+                    Object fromSpecies;
+                    Object toSpecies;
                     try {
-                        var getSpecies = pokemon.getClass().getMethod("getSpecies");
+                        Method getSpecies = pokemon.getClass().getMethod("getSpecies");
                         toSpecies = getSpecies.invoke(pokemon);
                         fromSpecies = getSpecies.invoke(sourcePokemon);
                     } catch (Exception ex) {
                         BigBangIdProfessorGatewayMod.LOGGER.warn("Falha ao obter species de evolução: {}", ex.getMessage());
                         return;
                     }
-
                     if (fromSpecies == null || toSpecies == null) return;
-
-                    var fromName = fromSpecies.getClass().getMethod("getName").invoke(fromSpecies);
-                    var toName = toSpecies.getClass().getMethod("getName").invoke(toSpecies);
-
+                    Object fromName = fromSpecies.getClass().getMethod("getName").invoke(fromSpecies);
+                    Object toName = toSpecies.getClass().getMethod("getName").invoke(toSpecies);
                     ServerPlayer player = null;
                     try {
-                        var getOwner = pokemon.getClass().getMethod("getOwnerPlayer");
-                        player = (ServerPlayer) getOwner.invoke(pokemon);
+                        player = (ServerPlayer) pokemon.getClass().getMethod("getOwnerPlayer").invoke(pokemon);
                     } catch (Exception ex) {
-                        var getPlayer = pokemon.getClass().getMethod("getPlayer");
-                        player = (ServerPlayer) getPlayer.invoke(pokemon);
+                        player = (ServerPlayer) pokemon.getClass().getMethod("getPlayer").invoke(pokemon);
                     }
-
                     JsonObject payload = new JsonObject();
-                    if (player != null) {
-                        payload.addProperty("minecraftUuid", player.getUUID().toString());
-                    }
-                    payload.addProperty("fromSpecies", fromName.toString().toLowerCase(java.util.Locale.ROOT));
-                    payload.addProperty("toSpecies", toName.toString().toLowerCase(java.util.Locale.ROOT));
-
+                    if (player != null) payload.addProperty("minecraftUuid", player.getUUID().toString());
+                    payload.addProperty("fromSpecies", fromName.toString().toLowerCase(Locale.ROOT));
+                    payload.addProperty("toSpecies", toName.toString().toLowerCase(Locale.ROOT));
                     try {
-                        var toForm = pokemon.getClass().getMethod("getForm").invoke(pokemon);
+                        Object toForm = pokemon.getClass().getMethod("getForm").invoke(pokemon);
                         if (toForm != null) {
-                            var formName = toForm.getClass().getMethod("getName").invoke(toForm);
-                            if (formName != null && !formName.toString().isEmpty()) {
-                                payload.addProperty("toForm", formName.toString());
-                            }
+                            Object formName = toForm.getClass().getMethod("getName").invoke(toForm);
+                            if (formName != null && !formName.toString().isEmpty()) payload.addProperty("toForm", formName.toString());
                         }
                     } catch (Exception ignored) { }
-
-                    payload.addProperty("occurredAt", java.time.Instant.now().toString());
-
-                    GatewayEvent gatewayEvent = GatewayEvent.create("pokemon.evolution.completed", serverId, payload);
-                    emitter.sendEvent(gatewayEvent, "NORMAL");
+                    payload.addProperty("occurredAt", Instant.now().toString());
+                    emitter.sendEvent(GatewayEvent.create("pokemon.evolution.completed", serverId, (JsonElement) payload), "NORMAL");
                 } catch (Exception ex) {
                     BigBangIdProfessorGatewayMod.LOGGER.warn("Falha ao processar evento de evolução: {}", ex.getMessage());
                 }
@@ -181,5 +140,9 @@ public final class CobblemonEventBridge {
         } catch (Exception ex) {
             BigBangIdProfessorGatewayMod.LOGGER.warn("Não foi possível registrar listener de evolução do Cobblemon: {}", ex.getMessage());
         }
+    }
+
+    public interface EventEmitter {
+        void sendEvent(GatewayEvent event, String priority);
     }
 }

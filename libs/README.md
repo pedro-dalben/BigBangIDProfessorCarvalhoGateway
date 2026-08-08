@@ -1,1 +1,0 @@
-/* Generated build stubs for BigBangEssentials compileOnly when BBE source is absent. */
